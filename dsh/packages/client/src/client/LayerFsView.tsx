@@ -12,7 +12,7 @@ import FM from '../../../../sim/simulation_engine/files.js'
 import M from '../../../../sim/simulation_engine/model.js'
 import * as X from '../../../model/src/index.js'
 import { createFilesSource, createView, injectStyle } from '../../../view/src/index.js'
-import { api, readProject, type ProjectRuntime, type ProjectState, type SessionView } from './api.ts'
+import { api, readProject, type ProjectRuntime, type ProjectState, type SessionView, type Storage } from './api.ts'
 import { CASTS, MAID_AVATARS } from './avatars.ts'
 import { ProjectBoard } from './ProjectBoard.tsx'
 import { Setup } from './Setup.tsx'
@@ -75,14 +75,21 @@ function Before({ view }: { view: SessionView }) {
   const name = view.project!.name
   const [state, setState] = useState<ProjectState | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [storage, setStorage] = useState<Storage | null>(null)
+  const [storageError, setStorageError] = useState<string | null>(null)
   useEffect(() => {
-    return readProject(name, setState, setError)
+    // the Store's figures, read once alongside History, as the project page does
+    let stopped = false
+    setStorage(null); setStorageError(null)
+    api.projectStorage(name).then((z) => { if (!stopped) setStorage(z) }, (e: Error) => { if (!stopped) setStorageError(e.message) })
+    const stop = readProject(name, setState, setError)
+    return () => { stopped = true; stop() }
   }, [name])
   const note = view.running.length ? 'a call is running…' : 'no calls in this session yet; they show here as the agents make them'
   return (
     <div style={{ ...BAND, display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0' }}>
       <div style={{ ...MESSAGE, padding: '0 12px', paddingBottom: 0 }}><b>{name}</b> · {note}{error ? ` · the project could not be read: ${error}` : ''}</div>
-      {state ? <ProjectBoard name={name} state={state} /> : !error && <div style={{ ...MESSAGE, padding: 0, paddingBottom: 0 }}>Loading the project…</div>}
+      {state ? <ProjectBoard name={name} state={state} storage={storage} storageError={storageError} /> : !error && <div style={{ ...MESSAGE, padding: 0, paddingBottom: 0 }}>Loading the project…</div>}
     </div>
   )
 }

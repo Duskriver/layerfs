@@ -550,8 +550,10 @@ export function createView(root, o) {
   function drawIde(host, W) {
     let ide = host.querySelector(":scope > .lfs-ide");
     if (!ide) {
-      host.innerHTML = `<div class="lfs-ide"><aside class="ide-side" aria-label="Files"></aside><div class="ide-main"><div class="ide-tabs" role="tablist" aria-label="Views"></div><section class="panel hist ide-pane" aria-label="History"></section></div></div>`;
-      ide = host.querySelector(":scope > .lfs-ide");
+      // added before what the host already holds: on a project page the host is the root,
+      // whose overlay (the maids' visits) and History's hover card must stay
+      ide = html(`<div class="lfs-ide"><aside class="ide-side" aria-label="Files"></aside><div class="ide-main"><div class="ide-tabs" role="tablist" aria-label="Views"></div><section class="panel hist ide-pane" aria-label="History"></section></div></div>`);
+      host.prepend(ide);
     }
     const side = ide.querySelector(".ide-side"), tabsEl = ide.querySelector(".ide-tabs"), pane = ide.querySelector(".ide-pane");
     const show = v.ide, tab = v.active, p = files.filesOf(tab);

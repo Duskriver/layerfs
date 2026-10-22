@@ -36,14 +36,15 @@ ${HEROES_CSS}
 /* History like an editor (view.js drawIde), on a project page and in a conversation: Files' tree in a sidebar, then File, History and Storage as tabs */
 .lfs.lfs-project { display: flex; flex-direction: column; min-height: 0; background: var(--window); }
 .lfs .lfs-ide { flex: 1; min-width: 0; min-height: 0; display: flex; flex-wrap: wrap; container: ide / inline-size; background: var(--window); }
-.lfs-ide .ide-side { flex: none; width: 248px; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); background: var(--card); }
+.lfs-ide .ide-side { flex: none; width: 248px; height: 100%; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); background: var(--card); }
 .lfs-ide .ide-title { flex: none; display: flex; align-items: center; gap: 8px; min-width: 0; height: 38px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--tab); font-size: 12.5px; }
 .lfs-ide .ide-title .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; }
 .lfs-ide .ide-title b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lfs-ide .ide-title .pt { margin-left: auto; flex: none; font: 11.5px var(--mono); color: var(--text-3); }
 .lfs-ide .ide-latest { flex: none; border: 0; border-radius: 4px; padding: 1px 6px; background: var(--accent-bg); color: var(--accent); font: 11px var(--mono); cursor: pointer; }
 .lfs-ide .ide-side .ftree { padding-top: 6px; }
-.lfs-ide .ide-main { flex: 1 1 360px; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+/* a wrapping row's line is as tall as its content: the full heights keep History's tree scrolling inside */
+.lfs-ide .ide-main { flex: 1 1 360px; height: 100%; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .lfs-ide .ide-tabs { flex: none; height: 38px; display: flex; align-items: stretch; min-width: 0; overflow-x: auto; border-bottom: 1px solid var(--line); background: var(--tab); scrollbar-width: none; }
 .lfs-ide .ide-tabs button { flex: none; display: flex; align-items: center; gap: 6px; max-width: 220px; padding: 0 14px; border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--text-3); font-size: 12.5px; cursor: pointer; }
 .lfs-ide .ide-tabs button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
