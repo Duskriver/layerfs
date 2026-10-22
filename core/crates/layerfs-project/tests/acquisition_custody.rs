@@ -289,3 +289,40 @@ fn a_symlinked_source_is_refused_by_name_before_anything_begins() {
     assert_eq!(*path, link);
     assert_eq!(acquisition.issued(), 0);
 }
+
+/// The backing's `Changed` names a row of the window it was given: the
+/// refusal names that row's host path and Init cleans up as for any refusal.
+#[test]
+fn a_changed_row_in_the_window_is_refused_by_its_path() {
+    let fixture = Fixture::new(20);
+    let history = MemoryHistory::default();
+    let acquisition = MemoryAcquisition::default();
+    // The first window holds the root alone, at position 0.
+    acquisition.fail("put_entries", 1, AcquisitionError::Changed { position: 0 });
+    let error = attempt(&fixture, &acquisition, &history).unwrap_err();
+    let ProjectError::InvalidInput { reason, path } = &error else {
+        panic!("expected a named source refusal, found {error:?}");
+    };
+    assert_eq!(*reason, SourceRefusal::Changed);
+    assert_eq!(*path, fixture.source);
+    assert!(acquisition.operations().is_empty());
+    assert!(history.layer_stack(stack()).unwrap().is_none());
+}
+
+/// A `Changed` position this window does not hold is not guessed at: the
+/// backing's own answer is kept.
+#[test]
+fn a_changed_row_outside_the_window_keeps_the_backing_answer() {
+    let fixture = Fixture::new(20);
+    let history = MemoryHistory::default();
+    let acquisition = MemoryAcquisition::default();
+    let outside = AcquisitionError::Changed { position: 1 << 40 };
+    acquisition.fail("put_entries", 1, outside.clone());
+    let error = attempt(&fixture, &acquisition, &history).unwrap_err();
+    assert!(
+        matches!(&error, ProjectError::Acquisition(found) if *found == outside),
+        "{error:?}"
+    );
+    assert!(acquisition.operations().is_empty());
+    assert!(history.layer_stack(stack()).unwrap().is_none());
+}
