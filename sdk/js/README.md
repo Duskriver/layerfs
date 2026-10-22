@@ -187,6 +187,19 @@ record bounds it. The engine writes it into the call's private Workspace a
 record at a time, so no file size is capped. Calls are never split or replayed
 automatically.
 
+A body is text (a string, written as UTF-8) or bytes: a `Buffer`, any typed
+array (`Uint8Array`, `Uint16Array`, ...), a `DataView` or an `ArrayBuffer`. A
+typed array or `DataView` writes exactly the bytes it views, in the machine's
+byte order, as Node's `fs.writeFile` does. In `fs.write` a non-string body is
+sent as bytes; in an `fs.apply` write, give `content` (text) or `bytes`, and
+binary `content` is sent as `bytes`. Bytes in a `SharedArrayBuffer` or a
+detached `ArrayBuffer` are refused as InvalidInput, and so is anything else,
+such as an array of numbers. The bytes are copied once the call starts, after
+the client's Store is open, so do not change them until the call settles.
+Reads are text only: `fs.read` refuses a file that is not UTF-8 text as
+`Binary`, and `fs.stat` reports its size. `node sdk/js/test/binary_write.mjs`
+checks these forms and refusals on Linux.
+
 Pages have `items` and `hasMore`; advance by `pagePos + items.length`.
 `diff_commits` and `diff_branches` also answer `nextCursor`, the last path the
 page listed: passing it back as `cursor` resumes the walk after that path, so a
