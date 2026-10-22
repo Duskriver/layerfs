@@ -5,7 +5,7 @@
 //! any typed array or DataView, so each becomes the bytes it views. Anything
 //! else, a number that is not a safe integer and nesting deeper than the SDK
 //! allows, is refused. A bare ArrayBuffer is an object without fields here;
-//! the package turns a write body's ArrayBuffer into a Buffer before the call.
+//! the package turns every binary write body into a Buffer before the call.
 use layerfs_bridge::control::SdkValue;
 use napi::{Env, JsBuffer, JsObject, JsUnknown, Result, ValueType};
 
