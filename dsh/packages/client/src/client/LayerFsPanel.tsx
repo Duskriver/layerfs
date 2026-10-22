@@ -14,7 +14,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { Button, IconEllipsisOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconTrashOutlineRegular, Menu, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import ellen from '../../../../sim/avatars/ellen_joe.gif'
 import { AllSandboxes } from './AllSandboxes.tsx'
-import { api, readProject, type Project, type ProjectState, type Status } from './api.ts'
+import { api, readProject, type Project, type ProjectState, type Status, type Storage } from './api.ts'
 import { InitDialog } from './InitDialog.tsx'
 import { ProjectBoard } from './ProjectBoard.tsx'
 import { RemoveDialog } from './RemoveDialog.tsx'
@@ -119,6 +119,8 @@ export function LayerFsPanel({ services }: { services: () => PanelServices }) {
   const [selected, setSelected] = useState<string | null>(null)
   const [state, setState] = useState<ProjectState | null>(null)
   const [stateError, setStateError] = useState<string | null>(null)
+  const [storage, setStorage] = useState<Storage | null>(null)
+  const [storageError, setStorageError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [reads, setReads] = useState(0)
@@ -137,9 +139,14 @@ export function LayerFsPanel({ services }: { services: () => PanelServices }) {
   }, [loadProjects])
   useEffect(() => {
     if (!selected) return
-    setState(null); setStateError(null)
+    setState(null); setStateError(null); setStorage(null); setStorageError(null)
+    // the Store's figures, read once alongside History (again on Refresh): the board
+    // remounts while the project loads, so they are kept here
+    let stopped = false
+    api.projectStorage(selected).then((z) => { if (!stopped) setStorage(z) }, (e: Error) => { if (!stopped) setStorageError(e.message) })
     // History draws as soon as the Store answers; Workspaces follow with the full state
-    return readProject(selected, setState, setStateError)
+    const stop = readProject(selected, setState, setStateError)
+    return () => { stopped = true; stop() }
   }, [selected, reads])
 
   const act = (label: string, run: () => Promise<unknown>) => async () => {
@@ -241,7 +248,7 @@ export function LayerFsPanel({ services }: { services: () => PanelServices }) {
                 )
               })()
               : state
-                ? <ProjectBoard name={project.name} state={state} tab={openTab} status={stats(state).map((f) => <FactView key={f.label} f={f} />)} />
+                ? <ProjectBoard name={project.name} state={state} storage={storage} storageError={storageError} tab={openTab} status={stats(state).map((f) => <FactView key={f.label} f={f} />)} />
                 : <Skeleton />}
           </>
         )}

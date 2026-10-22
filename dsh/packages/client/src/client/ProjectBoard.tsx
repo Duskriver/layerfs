@@ -19,14 +19,15 @@ import { bytes, saved, storeOf, times } from './storage.ts'
 import { followTheme } from './theme.ts'
 import { T } from './tokens.ts'
 
-/** `tab`: the tab to open with (the All projects page opens Sandboxes). */
-export function ProjectBoard({ name, state, status, tab }: { name: string, state: ProjectState, status?: ReactNode, tab?: 'sandboxes' }) {
+/**
+ * `tab`: the tab to open with (the All projects page opens Sandboxes).
+ * `storage`: the Store's figures, which the page reads alongside History (null while it reads).
+ */
+export function ProjectBoard({ name, state, storage, storageError, status, tab }: { name: string, state: ProjectState, storage: Storage | null, storageError: string | null, status?: ReactNode, tab?: 'sandboxes' }) {
   const host = useRef<HTMLDivElement>(null)
   const board = useRef<any>(null)
   const files = useRef<FilesSource | null>(null)
   const store = useRef<any>(null)
-  const [storage, setStorage] = useState<Storage | null>(null)
-  const [storageError, setStorageError] = useState<string | null>(null)
   // the Sandboxes tab's element: the view shows it as the tab's page and keeps it across draws
   const sbxEl = useRef<HTMLDivElement>(null as unknown as HTMLDivElement)
   if (!sbxEl.current) { sbxEl.current = document.createElement('div'); sbxEl.current.className = 'lfs-own'; sbxEl.current.style.height = '100%' }
@@ -60,18 +61,6 @@ export function ProjectBoard({ name, state, status, tab }: { name: string, state
     b.render()
   }, [name, state])
 
-  // the Store's figures, read again with the state (a Refresh), but not again when
-  // the full state follows the History it was read with
-  const storageFor = useRef<ProjectState | null>(null)
-  useEffect(() => {
-    const before = storageFor.current
-    storageFor.current = state
-    if (before?.historyOnly && before.s.project?.name === state.s.project?.name) return
-    let stopped = false
-    setStorage(null); setStorageError(null)
-    api.projectStorage(name).then((z) => { if (!stopped) setStorage(z) }, (e: Error) => { if (!stopped) setStorageError(e.message) })
-    return () => { stopped = true }
-  }, [name, state])
   useEffect(() => {
     store.current = storage ? storeOf(storage, state) : null
     board.current?.rerender?.()
