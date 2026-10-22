@@ -7,7 +7,7 @@
 #![cfg(unix)]
 mod support;
 use layerfs_history::{HistoryCatalog, HistoryName, LayerStackId};
-use layerfs_project::{init, InitRequest, Initialized, ProjectError};
+use layerfs_project::{init, InitRequest, Initialized, ProjectError, SourceRefusal};
 use layerfs_storage::port::{
     acquisition::{AcquisitionError, Phase},
     PersistenceError,
@@ -34,13 +34,21 @@ fn attempt(
     acquisition: &MemoryAcquisition,
     history: &MemoryHistory,
 ) -> Result<Initialized, ProjectError> {
+    attempt_at(&fixture.source, acquisition, history)
+}
+
+fn attempt_at(
+    source: &Path,
+    acquisition: &MemoryAcquisition,
+    history: &MemoryHistory,
+) -> Result<Initialized, ProjectError> {
     let store = support::storage(Arc::new(MemoryMetadata::default()));
     Timing::disabled("project.init", |scope| {
         init(
             &store,
             history,
             InitRequest {
-                source: &fixture.source,
+                source,
                 acquisition,
                 stack: stack(),
                 name: HistoryName::new("main").unwrap(),
@@ -175,7 +183,12 @@ fn a_definite_failure_removes_its_rows_and_its_record() {
     let history = MemoryHistory::default();
     let acquisition = MemoryAcquisition::default();
     let error = attempt(&fixture, &acquisition, &history).unwrap_err();
-    assert!(matches!(error, ProjectError::InvalidInput), "{error:?}");
+    // The refusal names its check and the entry, so a caller can act on it.
+    let ProjectError::InvalidInput { reason, path } = &error else {
+        panic!("expected a named source refusal, found {error:?}");
+    };
+    assert_eq!(*reason, SourceRefusal::Mode(0o4644));
+    assert_eq!(*path, fixture.source.join("d9/f0019"));
     assert_eq!(acquisition.issued(), 1);
     assert!(
         acquisition.calls("put_entries") >= 1,
@@ -208,7 +221,7 @@ fn a_failed_cleanup_after_a_failure_keeps_both_causes() {
         panic!("expected a cleanup failure, found {outcome:?}");
     };
     assert!(
-        matches!(cause.as_deref(), Some(ProjectError::InvalidInput)),
+        matches!(cause.as_deref(), Some(ProjectError::InvalidInput { .. })),
         "{cause:?}"
     );
     assert_eq!(error, refused());
@@ -259,4 +272,20 @@ fn a_backing_read_failure_is_definite_and_is_cleaned_up() {
     );
     assert!(acquisition.operations().is_empty());
     assert!(history.layer_stack(stack()).unwrap().is_none());
+}
+
+#[test]
+fn a_symlinked_source_is_refused_by_name_before_anything_begins() {
+    let fixture = Fixture::new(1);
+    let link = fixture.path.join("link");
+    symlink(&fixture.source, &link).unwrap();
+    let history = MemoryHistory::default();
+    let acquisition = MemoryAcquisition::default();
+    let error = attempt_at(&link, &acquisition, &history).unwrap_err();
+    let ProjectError::InvalidInput { reason, path } = &error else {
+        panic!("expected a named source refusal, found {error:?}");
+    };
+    assert_eq!(*reason, SourceRefusal::NotDirectory);
+    assert_eq!(*path, link);
+    assert_eq!(acquisition.issued(), 0);
 }
