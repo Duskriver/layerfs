@@ -1,8 +1,11 @@
 //! JavaScript values to and from SDK values.
 //!
 //! Objects become maps (undefined fields are left out), arrays lists, strings
-//! text, Buffers bytes, safe integers integers. Anything else, a number that
-//! is not a safe integer and nesting deeper than the SDK allows, is refused.
+//! text, Buffers bytes, safe integers integers. Node's buffer check accepts
+//! any typed array or DataView, so each becomes the bytes it views. Anything
+//! else, a number that is not a safe integer and nesting deeper than the SDK
+//! allows, is refused. A bare ArrayBuffer is an object without fields here;
+//! the package turns every binary write body into a Buffer before the call.
 use layerfs_bridge::control::SdkValue;
 use napi::{Env, JsBuffer, JsObject, JsUnknown, Result, ValueType};
 
