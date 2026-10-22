@@ -17,7 +17,7 @@ export function deploymentEnv(spec, project) {
   // path (#352 F-020); a simulated project uses none of them
   if (isSim(project)) return { HOME: spec.home, DOCKER: "sim", IMAGE: "sim", DAEMON: "sim", VOLUME: project.volume, STORE_PATH: "sim" };
   return {
-    HOME: spec.home,
+    HOME: spec.windows?.home ?? spec.home,
     DOCKER: spec.docker,
     IMAGE: project.image ?? spec.image ?? "",
     DAEMON: spec.daemon ?? "",
@@ -30,6 +30,7 @@ export function deploymentEnv(spec, project) {
     // macOS: the calls run in the Store container, which sees that directory and
     // Sandbox daemons at the Docker host
     ...(spec.box ? { DAEMON_HOST, STORE_CONTAINER: spec.box, BUNDLE: spec.bundle } : {}),
+    ...(spec.windows ? { WSL_ENDPOINT: spec.windows.endpoint } : {}),
   };
 }
 
@@ -68,7 +69,7 @@ export function within(promise, ms) {
 }
 
 /** The SDK's call module beside its operator: the ported build's, or the installed package's. */
-const clientEntryOf = (spec) => spec.box ? pathToFileURL(join(spec.bundle, "sdk/js/src/client.js")).href : new URL("../src/client.js", spec.operator).href;
+const clientEntryOf = (spec) => spec.box ? pathToFileURL(join(spec.bundle, "sdk/js/src/client.js")).href : new URL("../src/client.js", spec.windows ? import.meta.resolve("@layerfs/sdk/operator") : spec.operator).href;
 
 /** Releases a Host client: its Store. The project's Sandboxes close themselves when idle (#373). */
 export async function release({ layerfs }) {

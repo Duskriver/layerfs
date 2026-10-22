@@ -67,7 +67,12 @@ export class Collector {
 
   /** Starts following an agent's trace file and returns its path. */
   track(agent, project) {
-    const file = join(this.spec.traceDir, `${agent.id}.jsonl`);
+    // Windows shell tokens can write their workspace and private temp, but
+    // cannot append to the server's global temp directory.
+    const dir = this.spec.traceInWorkspace ? join(agent.cwd, ".dsh-layerfs-traces") : this.spec.traceDir;
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `${agent.id}.jsonl`);
+    if (this.spec.traceInWorkspace) this.bindings.setAgent(agent.id, agent.root, agent.name, file);
     if (!this.tails.has(agent.id)) {
       // lines already in the file were collected before this Host started
       const offset = existsSync(file) ? statSync(file).size : 0;
@@ -173,11 +178,18 @@ export class Collector {
     if (existsSync(journal)) for (const raw of readFileSync(journal, "utf8").split("\n")) {
       try { if (raw) this.keep(view, JSON.parse(raw)); } catch { /* a torn last line */ }
     }
+    const files = new Map();
     if (existsSync(this.spec.traceDir)) for (const entry of readdirSync(this.spec.traceDir)) {
-      if (!entry.endsWith(".jsonl")) continue;
-      const sessionId = entry.slice(0, -6), agent = this.bindings.agent(sessionId);
+      if (entry.endsWith(".jsonl")) files.set(entry.slice(0, -6), join(this.spec.traceDir, entry));
+    }
+    for (const id of Object.keys(this.bindings.agentsOf(rootId))) {
+      const file = this.bindings.agent(id)?.traceFile;
+      if (file && existsSync(file)) files.set(id, file);
+    }
+    for (const [sessionId, file] of files) {
+      const agent = this.bindings.agent(sessionId);
       if (!agent || agent.root !== rootId) continue;
-      const file = join(this.spec.traceDir, entry), tail = this.tails.get(sessionId);
+      const tail = this.tails.get(sessionId);
       const end = tail ? tail.offset : statSync(file).size, fd = openSync(file, "r"), buffer = Buffer.alloc(end);
       try { readSync(fd, buffer, 0, end, 0); } finally { closeSync(fd); }
       for (const raw of buffer.toString("utf8").split("\n")) this.take(sessionId, tail ? tail.project : null, raw, false);

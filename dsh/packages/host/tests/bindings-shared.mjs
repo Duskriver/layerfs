@@ -21,7 +21,10 @@ web.remove("app");
 const disk = JSON.parse(readFileSync(join(dir, "bindings.json"), "utf8"));
 assert.deepEqual(Object.keys(disk.projects), [], "remove kept");
 assert.equal(disk.agents["s-1"].name, "main", "the other store's agent kept");
-assert.deepEqual(disk.sessions["s-1"], { project: null, locked: true, folder: "/w/app" }, "the other store's lock kept, its project cleared by remove");
+assert.deepEqual(disk.sessions["s-1"], { project: null, locked: false, folder: "/w/app" }, "removal clears the project and lock");
+
+web.addProject("/w/next", { name: "next", source: "/w/next", volume: "v-next", created: 2 });
+assert.equal(headless.choose("s-1", "/w/next", "next"), true, "the existing session can choose another project after removal");
 
 // across processes: 4 writers × 40 agents each, all at once
 const child = `const { BindingStore } = await import(${JSON.stringify(BINDING)}); const b = new BindingStore(process.argv[1]); for (let i = 0; i < 40; i++) b.setAgent(process.argv[2] + "-" + i, "r", "n" + i);`;

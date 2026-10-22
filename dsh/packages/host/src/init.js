@@ -3,7 +3,7 @@
 // (backend "sim") is imported into the simulator (sim/) instead: no Docker,
 // no deployment settings.
 import { execFile } from "node:child_process";
-import { accessSync, constants, existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { accessSync, appendFileSync, constants, existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { lstat, opendir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { setTimeout as pause } from "node:timers/promises";
 import { promisify } from "node:util";
 import { ensureBox } from "./box.js";
+import { ensureWindows, windowsDocker } from "./windows/host.js";
 import { missingDeployment } from "./config.js";
 import { clientFor, isSim, release } from "./layerfs-client.js";
 
@@ -151,7 +152,8 @@ async function initFrom(spec, bindings, { folder, project }, report) {
   const totals = await scanSource(project.source, (counts) => report({ scanned: counts }));
   report({ step: "volume", totals });
   const docker = ["-H", `unix://${spec.docker}`];
-  if (!isSim(project)) await run("docker", [...docker, "volume", "create", project.volume]);
+  if (spec.windows && !isSim(project)) await ensureWindows(spec);
+  if (!isSim(project)) await (spec.windows ? windowsDocker(spec, ["volume", "create", project.volume]) : run("docker", [...docker, "volume", "create", project.volume]));
   report({ step: "import" });
   let client;
   try {
@@ -161,6 +163,11 @@ async function initFrom(spec, bindings, { folder, project }, report) {
     await (spec.box && !isSim(project) ? init() : watching(client, report, init));
   } catch (error) {
     if (client) await release(client).catch(() => {});
+    if (!isSim(project) && (spec.windows || error?.code === "Unknown")) {
+      // A reply may have been lost after Init installed the Store. Retain both sides, never guess cleanup.
+      appendFileSync(join(spec.stateDir, spec.windows ? "windows-init-failures.jsonl" : "init-failures.jsonl"), JSON.stringify({ project, home: spec.windows?.home ?? spec.home, code: error.code, message: error.message }) + "\n");
+      throw error;
+    }
     // Init made the project's entry unless another project holds the name
     if (!isSim(project) && error?.code !== "Exists") rmSync(join(spec.home, project.name), { recursive: true, force: true });
     if (!isSim(project)) await run("docker", [...docker, "volume", "rm", project.volume]).catch(() => {});

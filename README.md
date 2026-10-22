@@ -25,7 +25,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
   <a href="https://github.com/Ephemeral-AI-Lab/layerfs/releases/tag/v1.0.0"><img src="https://img.shields.io/badge/version-1.0.0-2f6fde.svg" alt="1.0.0"></a>
-  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20via%20DSH-555.svg" alt="Linux, and macOS through DSH">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20via%20DSH%20%7C%20Windows%20via%20WSL2-555.svg" alt="Linux, macOS through DSH, and Windows through WSL2 on current main">
   <a href="https://discord.gg/8mmAMCDc2"><img src="https://img.shields.io/badge/Discord-join-5865F2.svg?logo=discord&logoColor=white" alt="Discord"></a>
 </p>
 
@@ -36,6 +36,8 @@ https://github.com/user-attachments/assets/70c25887-86a1-4d81-bd78-571cf1c09a18
 > The results below ran on `main` at `e5c7aaae05`. The Store runs in its Disposable profile only, with no
 > crash or power-loss durability: use LayerFS for agent work and its history, not
 > as the only copy of data you cannot rebuild.
+
+Current main also supports native Windows dsh Live through WSL2 and its own Linux Docker Engine; see the [Windows setup](dsh/README.md#windows-live). This adapter was added after the v1.0.0 source release.
 
 <a id="get-started"></a>
 ## Try it with LayerFS × DSH

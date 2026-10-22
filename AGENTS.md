@@ -142,6 +142,15 @@ remains a separate MEMORY/OFF/EXCLUSIVE database file.
   in use (closed after a quiet minute). The worker listens on loopback only,
   behind a secret. The product SDK and daemon do not change. Nothing else may
   route Store calls this way.
+- **Additional exception (owner, 2026-10-22): dsh Live on Windows.** The
+  Windows dsh-layerfs adapter may forward its SDK binding calls to one
+  authenticated loopback worker per LayerFS home in a selected WSL2 Linux
+  distribution. The worker opens the shared Store directly on that
+  distribution's local ext4/xfs/btrfs filesystem and uses its Docker Engine
+  for Sandbox daemons. Windows owns the UI, bindings and traces; Linux owns
+  native handles and project discovery. This is independent of the macOS
+  adapter and changes neither the product SDK nor the daemon. A lost reply
+  is never replayed, and an uncertain Init retains its Linux home and volume.
 - **One global database, one writer, short holds (owner decision 2026-10-18).**
   All committed state lives in one SQLite Store file; no sharding, second
   database, concurrent-writer engine or objects outside it. Writes go one at a

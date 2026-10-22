@@ -1,3 +1,5 @@
+> **Status:** Current general guide. Windows WSL2 support describes current main, added after the v1.0.0 source release.
+
 <h1 align="center"><img src="../docs/assets/readme/layerfs-x-dsh.svg" alt="LayerFS × DSH" width="280"></h1>
 
 <p align="center"><strong>Every agent gets its own Branch. You watch them all, live.</strong></p>
@@ -38,7 +40,7 @@ real LayerFS.
 
 1. Read dsh/README.md in https://github.com/Ephemeral-AI-Lab/layerfs, the "Install" section
    and its "Install step by step" steps. It is the guide: follow its steps in order and for
-   this machine's OS (macOS or Linux).
+   this machine's OS (macOS, Linux, or Windows; Windows uses the WSL2 setup below).
 2. Check what it needs first: Node 22.19 or newer, pnpm, Docker (Docker Desktop on macOS),
    network access, and a built deepseek-harness checkout
    (https://github.com/deepseek-ai/deepseek-harness) beside the layerfs repository; if there
@@ -201,6 +203,84 @@ A Live Init without the required settings is refused with "LayerFS is not config
 
 **On Linux** the Host and agents' scripts load the SDK in their own process, from `sdk/js` in this repository. It loads the addon from `LAYERFS_NATIVE`, or else `sdk/js/native/layerfs.node`: build it on that machine with `npm --prefix sdk/js run build:native` ([SDK README](../sdk/js/README.md#builds-and-compatibility); it needs Cargo 1.85.1 on the host), or set `LAYERFS_NATIVE` in dsh web's environment to a Linux build's `layerfs.node`. `daemon` is that build's `layerfs-daemon`. The Store must be on a local Linux filesystem (ext4, xfs or btrfs). Init installs the Store straight into the new project's volume directory under Docker's volumes directory (`volumes`, `/var/lib/docker/volumes` by default), which Docker keeps root-only, so run dsh web as a user that can write it, such as root, and give it a `home` that user owns; otherwise Init refuses with `host-access` before it makes a volume.
 
+<a id="windows-live"></a>
+
+**On Windows** dsh web and the default profile remain on Windows. The separate
+[`windows/` adapter](packages/host/src/windows/host.js) starts one long-lived Node
+worker in a selected WSL2 distribution. That distribution needs its own running
+Docker Engine, `/dev/fuse`, Node 22.19 or newer, and a **sealed Linux bundle** from
+`tools/worktree.py build` (run the build inside WSL, using the private resources
+described above). Docker Desktop's Windows named pipe is not used by this adapter.
+
+Install and build the plugin on Windows with steps 2–3. You can add it to your
+existing default `web` profile; omit the example's `DSH_HOME` override to do so.
+Keep that profile's existing patch entries and add:
+
+```yaml
+- id: layerfs-host
+  config:
+    image: "sha256:<exact image ID from the WSL Docker Engine>"
+    bundle: /home/<linux-user>/layerfs-build   # sealed Linux bundle, including manifest.json
+    wslDistribution: Ubuntu
+    # wslUser: root                          # default; must access Docker and its Store volumes
+    # wslNode: /usr/local/bin/node             # default; absolute Linux executable path
+    # wslHome: /var/lib/dsh-layerfs-windows/my-profile
+    containerPrefix: layerfs-windows-
+```
+
+`daemon` defaults to `<bundle>/layerfs-daemon`. `bundle`, `daemon`, `wslNode`, and
+`wslHome` are Linux paths in that distribution. `home`, `traceDir`, and `stateDir`
+remain Windows paths. The default Linux home is a persistent directory under
+`/var/lib/dsh-layerfs-windows`, derived from the Windows home. Stores live in the
+WSL Docker Engine's named volumes on its local Linux filesystem. Never put the
+Store or Linux discovery home on `/mnt/c` or another Windows-backed mount.
+
+The Windows SDK entry preserves the regular SDK API for Host clients and agents.
+It forwards native calls to the worker; the product SDK and daemon are unchanged.
+Imports translate drive paths with that distribution's `wslpath`; WSL UNC paths
+must name the selected distribution. Init reads everything through the Linux
+filesystem view, including `.git` and ignored files. Windows ACLs are not converted
+to POSIX metadata; imported metadata is what WSL exposes.
+
+The worker validates the sealed bundle's file hashes, listens only on Linux
+loopback, and requires a random secret delivered over its startup pipe. Its
+Windows endpoint file is ACL-restricted to the current Windows user and SYSTEM.
+The Windows SDK source must match the sealed Linux SDK (allowing Git line-ending
+normalization). Windows binding-file readers share the writers' short admission
+lock so reads cannot overlap atomic file replacement; failed writes are not retried.
+Each project's native Store stays open while used and closes after a quiet minute.
+Project removal explicitly releases its cached Store before deleting the volume.
+Disposal drains admitted calls without killing mounted commands. Runtime Start
+and confirmed Restart act on this worker; a silent or busy worker is retained.
+Changing WSL deployment settings requires restarting dsh.
+
+A request lost before it is sent is `Failed`; a sent request whose reply is lost
+is `Unknown` and is never replayed. Failed Windows Init attempts retain their
+volume and Linux discovery state, with the original failure and volume recorded
+in `windows-init-failures.jsonl` under `stateDir`. Inspect that evidence before
+deciding how to recover. The macOS container adapter and Windows WSL adapter
+share the worker codec, but keep separate deployment and lifecycle code.
+
+The codec is versioned JSON with explicit binary values, independent of V8
+serialization versions. Upgrade the Host and worker together, with no active
+calls; old V8 workers are incompatible and must be restarted. A protocol
+failure is reported explicitly and never replays a call. An uncertain Init reply
+also retains the macOS home and volume, recorded in `init-failures.jsonl` under
+`stateDir`, so protocol errors cannot trigger deletion of a completed Init.
+
+This setup uses the repository pnpm workspace and a dsh source checkout. Packaged
+dsh desktop and npm/plugin-market installation are not qualified
+([#406](https://github.com/Ephemeral-AI-Lab/layerfs/issues/406)). Docker Desktop
+volume visibility from a WSL Linux host is a separate unsupported topology;
+see [#380](https://github.com/Ephemeral-AI-Lab/layerfs/issues/380).
+
+From the dsh checkout, restart your normal Windows `dsh web` server, keeping its
+usual port (for example `--port 3080`). `GET /layerfs/status` should report an empty
+`missing` list. The LayerFS runtime page reports both the WSL worker and its Docker
+Engine. This does not require running a second dsh server in WSL.
+The [verification record](docs/windows-live-verification-20261022.md) pins the
+tested source, native bundle, outcomes and platform gaps.
+
 **Running two dsh webs on one machine.** The default `home` and `traceDir` are the same for every profile, so two dsh webs would share projects and the Store container. Give each its own pair under the OS temp area, and its own `containerPrefix`, since container names are per Docker engine (the Store container of another home is refused, never taken over):
 
 ```yaml
@@ -338,7 +418,7 @@ The Work and History tabs and the LayerFS page are the only LayerFS UI. The stan
 
 dsh session (agents, subagents, bash) → `layerfs-host` (bash environment, records) → LayerFS JS SDK (short Node scripts) → Store and Sandboxes.
 
-A bash call in a session bound to a project gets the project, the SDK and a trace file per agent (`DSH_LAYERFS_*`). Each finished SDK call becomes a `plugin:layerfs/call` record in the calling agent's own session, and the client plugin reads those records back to draw the tabs. On Linux, the Host and the agents' scripts open the Store in their own process. On macOS the Mac runs no Store call itself: the Host starts one long-lived Linux container, `layerfs-store`, and every SDK call runs there. Agents' Workspaces are placed in the project's numbered Sandboxes, 16 to a Sandbox, and each Sandbox closes itself two minutes after its last Workspace is unmounted.
+A bash call in a session bound to a project gets the project, the SDK and a trace file per agent (`DSH_LAYERFS_*`). Each finished SDK call becomes a `plugin:layerfs/call` record in the calling agent's own session, and the client plugin reads those records back to draw the tabs. On Linux, the Host and the agents' scripts open the Store in their own process. On Windows, SDK calls run in the authenticated WSL worker, whose Docker Engine owns the Sandbox volumes. On macOS the Mac runs no Store call itself: the Host starts one long-lived Linux container, `layerfs-store`, and every SDK call runs there. Agents' Workspaces are placed in the project's numbered Sandboxes, 16 to a Sandbox, and each Sandbox closes itself two minutes after its last Workspace is unmounted.
 
 ## 📖 Reference
 
@@ -373,11 +453,11 @@ A bash call in a session bound to a project gets the project, the SDK and a trac
   | `POST /layerfs/project/<name>/attach {folder}` | attach to a workspace folder, or `null` to detach |
   | `POST /layerfs/project/<name>/remove {confirm}` | remove the project; `confirm` must repeat its name |
 
-  Init first counts the source (every entry, links not followed, as LayerFS reads it), then makes the volume, then runs LayerFS Init (on macOS in a container of its own), which scans, imports and installs the Store into the volume in one process; it starts no Sandbox. While LayerFS imports, the Host reads its counts every 250 ms (the SDK operator's `project.progress()`: step, entries scanned, files and bytes built) into the job's `imported`. The page reads the job every 300 ms and fills the bar from those counts over the Host's totals: scan 0–15%, files 15–95% (bytes plus 4 KB per file), then tree, publish and seal.
+  Init first counts the source (every entry, links not followed, as LayerFS reads it), then makes the volume, then runs LayerFS Init (in the WSL worker on Windows, or a container of its own on macOS), which scans, imports and installs the Store into the volume in one process; it starts no Sandbox. While LayerFS imports, the Host reads its counts every 250 ms (the SDK operator's `project.progress()`: step, entries scanned, files and bytes built) into the job's `imported`. The page reads the job every 300 ms and fills the bar from those counts over the Host's totals: scan 0–15%, files 15–95% (bytes plus 4 KB per file), then tree, publish and seal.
 
   Removal deletes the project's Docker volume and LayerFS home entry, and drops it from the bindings; sessions on it become unbound. It is refused while any container still uses the volume. Workspace files and transcripts stay. A LayerFS project is its home entry, so a removed name can be initialized again at once.
 
-  The Host reads each project (state and trees) through one shared SDK client, released after a quiet minute. Reading starts no Sandbox: history comes from the project's Store (on macOS, in the Store container), and Workspaces only from Sandboxes already running, so a project nobody works on shows its history with no container. LayerFS places agents' Workspaces in the project's numbered Sandboxes, `layerfs-<project>-<n>`, 16 to a Sandbox; each Sandbox closes itself two minutes after its last Workspace is unmounted, and the tab then draws it closed.
+  The Host reads each project (state and trees) through one shared SDK client, released after a quiet minute. Reading starts no Sandbox: history comes from the project's Store (in the WSL worker on Windows or the Store container on macOS), and Workspaces only from Sandboxes already running, so a project nobody works on shows its history with no container. LayerFS places agents' Workspaces in the project's numbered Sandboxes, `layerfs-<project>-<n>`, 16 to a Sandbox; each Sandbox closes itself two minutes after its last Workspace is unmounted, and the tab then draws it closed.
 
   The Files pane reads only what is on screen, one SDK call each ([`reads.js`](packages/host/src/reads.js)): a folder a page of up to 1,000 names at a time, a file a window of at most 2,000 lines or 48 KiB. A read costs the same in a small project and a huge one. `node_modules`, `.git` and `.next` start collapsed.
 
@@ -464,8 +544,16 @@ Known limits:
 
 - Only dsh web is checked. dsh desktop serves the same web client but was not tested; the headless profile has no preset registry, so the preset is not offered there.
 - A session's project is fixed at its first bash call that uses it.
-- Sessions run in Workspace Write mode, and the Host's `home` and `traceDir` stay in the OS temp area: a mount anywhere else fails `PermissionDenied`.
+- Sessions run in Workspace Write mode. Windows defaults agent traces to
+  `<workspace>/.dsh-layerfs-traces`, because its restricted shell can write
+  the workspace and its private temp directory, but not the server’s temp
+  directory. The Host retains each trace path across restarts. An explicit
+  `traceDir` must be writable by the agents. Other platforms keep the default
+  traces in the OS temp area.
 - Everything else follows LayerFS's platform limits: Store calls need Linux and a local ext4, xfs or btrfs filesystem, which on macOS the Store container provides.
+- Windows Live uses WSL2 and its Linux Docker Engine through the Windows adapter;
+  native Windows Store execution remains unsupported. Sim's local `/bin/sh`
+  executor is not ported to Windows. macOS execution was not rerun for this change.
 
 ## 🧰 Develop
 

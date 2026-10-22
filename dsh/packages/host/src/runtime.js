@@ -19,6 +19,7 @@ import { promisify } from "node:util";
 import { buildOf, ensureBox, storeFile, VOLUMES } from "./box.js";
 import { isSim, within } from "./layerfs-client.js";
 import { frame, readFrames } from "./port/frames.mjs";
+import { windowsDocker, windowsState, windowsFree, startWindows, restartWindows } from "./windows/host.js";
 
 const run = promisify(execFile);
 /** Workspaces one Sandbox's daemon admits (the SDK's daemon setup, `namespaces`). */
@@ -28,7 +29,7 @@ export const LEFT_MS = 10 * 60_000;
 const DOCKER_MS = 5_000, PING_MS = 1_000, RESTART_MS = 20_000;
 const RANK = { down: 0, degraded: 1, ok: 2 };
 
-const docker = (spec, ...args) => run("docker", ["-H", `unix://${spec.docker}`, ...args], { timeout: DOCKER_MS }).then((r) => r.stdout.trim());
+const docker = (spec, ...args) => (spec.windows ? windowsDocker(spec, args, { timeout: DOCKER_MS }) : run("docker", ["-H", `unix://${spec.docker}`, ...args], { timeout: DOCKER_MS })).then((r) => r.stdout.trim());
 const key = (sandbox, path) => `${sandbox}\n${path}`;
 const worst = (levels) => levels.reduce((a, b) => (RANK[b] < RANK[a] ? b : a), "ok");
 const refuse = (status, code, message) => Object.assign(new Error(message), { status, code });
@@ -95,8 +96,8 @@ export async function quickSandboxes(collector, project, containers, now = Date.
 export async function overview(spec, bindings, trees, collector) {
   const engine = await engineState(spec);
   const containers = engine.level === "ok" ? await containersOf(spec) : [];
-  const store = spec.box ? await storeState(spec, engine) : null;
-  const disk = { host: freeBytes(spec.home), vm: store?.level === "ok" ? await vmFree(spec) : null };
+  const store = spec.windows ? await windowsState(spec) : spec.box ? await storeState(spec, engine) : null;
+  const disk = { host: freeBytes(spec.home), vm: spec.windows ? await windowsFree(spec) : store?.level === "ok" ? await vmFree(spec) : null };
   const projects = bindings.projects(), known = new Set(projects.map((p) => p.name));
   const cards = await Promise.all(projects.map(async (p) => {
     const own = containers.filter((c) => c.project === p.name);
@@ -151,6 +152,7 @@ export async function projectAction(trees, collector, project, body) {
 
 /** Starts the Store container when it is stopped or missing; a running one is left alone. */
 export async function startStore(spec) {
+  if (spec.windows) return startWindows(spec);
   if (!spec.box) throw refuse(409, "no-store", "this Host runs no Store container (Linux runs Store calls in-process)");
   const state = await storeState(spec, await engineState(spec));
   if (state.state === "running") throw refuse(409, "running", state.answering ? "layerfs-store is running and answering" : "layerfs-store runs but does not answer; restart it instead");
@@ -165,6 +167,7 @@ export async function startStore(spec) {
  * Store calls fail while it restarts, so `confirm` must be "restart".
  */
 export async function restartStore(spec, body) {
+  if (spec.windows) return restartWindows(spec, body);
   if (!spec.box) throw refuse(409, "no-store", "this Host runs no Store container (Linux runs Store calls in-process)");
   if (body?.confirm !== "restart") throw refuse(409, "not-confirmed", "a restart cuts off every project's Store calls; confirm it");
   const state = await storeState(spec, await engineState(spec));

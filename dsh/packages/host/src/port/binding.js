@@ -11,9 +11,8 @@ import { execFile, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { connect } from "node:net";
 import { fileURLToPath } from "node:url";
-import { deserialize, serialize } from "node:v8";
 import { callMounts, DAEMON_HOST, storeFile } from "../box.js";
-import { frame, readFrames } from "./frames.mjs";
+import { decode, encode, frame, readFrames } from "./frames.mjs";
 
 const RUN = fileURLToPath(new URL("./run.mjs", import.meta.url));
 /** Stores this process has opened, by path, with their clients. */
@@ -94,7 +93,7 @@ function worker(box, home) {
     pending.delete(id);
     if (!pending.size) socket.unref();
     if (answer?.thrown) p.reject(new Error(answer.thrown)); else p.resolve(answer);
-  }, () => socket.destroy());
+  }, (error) => socket.destroy(error));
   const self = { closed: false };
   const lost = (error) => {
     self.closed = true;
@@ -139,15 +138,19 @@ async function initCall(box, bundle, request) {
     child.on("close", (code) => {
       const bytes = Buffer.concat(out);
       if (code === 0 && bytes.length) {
-        const answer = deserialize(bytes);
-        return answer.thrown ? reject(new Error(answer.thrown)) : resolve(answer);
+        try {
+          const answer = decode(bytes);
+          return answer.thrown ? reject(new Error(answer.thrown)) : resolve(answer);
+        } catch (error) {
+          return resolve(refused("Unknown", `project.init reply could not be decoded: ${error.message}; inspect the project before continuing`));
+        }
       }
       // 125 and up: docker could not start the process, so the call did not run
       resolve(code >= 125
         ? refused("Failed", `the Store container ${box} did not run project.init (docker run exit ${code})`)
         : refused("Unknown", `project.init ended without an answer (exit ${code}): check the project before going on`));
     });
-    child.stdin.end(serialize(request));
+    child.stdin.end(encode(request));
   });
 }
 

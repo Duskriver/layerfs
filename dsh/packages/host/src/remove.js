@@ -19,6 +19,7 @@ import { join, relative } from "node:path";
 import { promisify } from "node:util";
 import { isSim } from "./layerfs-client.js";
 import { stopProcesses } from "./sim/binding.js";
+import { removeWindowsHome, releaseWindowsStore, windowsDocker } from "./windows/host.js";
 
 const execute = promisify(execFile);
 /** Container states that hold the volume but run nothing: what a failed start leaves. */
@@ -58,6 +59,7 @@ export async function removeProject(spec, bindings, trees, name, run = execute, 
     return { removed: project.name, volume: project.volume };
   }
   const docker = ["-H", `unix://${spec.docker}`];
+  if (spec.windows) run = (_file, args) => windowsDocker(spec, args.slice(2));
   const { stdout } = await run("docker", [...docker, "ps", "-a", "--filter", `volume=${project.volume}`, "--format", "{{.ID}} {{.State}}"]);
   const containers = stdout.split("\n").filter(Boolean).map((line) => line.split(" "));
   const users = containers.filter(([, state]) => !STOPPED.has(state)).length;
@@ -65,7 +67,9 @@ export async function removeProject(spec, bindings, trees, name, run = execute, 
   // stopped containers on the volume are left by failed starts; the name was confirmed, so they go with it
   const stopped = containers.map(([id]) => id);
   if (stopped.length) await run("docker", [...docker, "rm", ...(users ? ["-f"] : []), ...stopped]);
+  if (spec.windows) await releaseWindowsStore(spec, project.volume);
   await run("docker", [...docker, "volume", "rm", project.volume]);
+  if (spec.windows) await removeWindowsHome(spec, project.name);
   forgetSandboxes(spec, project.name, project.volume);
   if (existsSync(home)) rmSync(home, { recursive: true, force: true });
   bindings.remove(project.name);

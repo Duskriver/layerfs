@@ -84,5 +84,5 @@ createServer((socket) => {
     }
     if (value.fn === "ping") return socket.write(frame({ id: value.id, answer: { value: "ready" } }));
     answer(value).then((result) => { if (!socket.destroyed) socket.write(frame({ id: value.id, answer: result })); });
-  }, () => socket.destroy());
+  }, (error) => { console.error(error.message); socket.destroy(); });
 }).listen(PORT, "0.0.0.0", () => console.error(`layerfs store worker: listening on ${PORT}`));

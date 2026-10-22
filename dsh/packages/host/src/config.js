@@ -1,9 +1,10 @@
 // Host plugin configuration and its resolution into absolute settings.
 import { mkdirSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { storeName, VOLUMES } from "./box.js";
+import { windowsConfig } from "./windows/host.js";
 
 /**
  * @typedef {object} Config
@@ -22,6 +23,10 @@ import { storeName, VOLUMES } from "./box.js";
  * @property {string} [stateDir] Directory for project bindings and agent names.
  * @property {string} [traceDir] Directory for per-agent SDK trace files; bash calls must be able to write it.
  * @property {number} [pollMs] Interval at which trace files are read for new lines.
+ * @property {string} [wslDistribution] Windows: WSL2 distribution running Docker and the SDK (default Ubuntu).
+ * @property {string} [wslUser] Windows: Linux user owning Store volumes (default root).
+ * @property {string} [wslHome] Windows: persistent Linux discovery directory (default derived from Windows home).
+ * @property {string} [wslNode] Windows: Linux Node executable (default /usr/local/bin/node).
  */
 
 /**
@@ -36,11 +41,13 @@ import { storeName, VOLUMES } from "./box.js";
  * @property {string} home
  * @property {string} stateDir
  * @property {string} traceDir
+ * @property {boolean} traceInWorkspace Windows default: traces use the shell's writable workspace.
  * @property {number} pollMs
  * @property {string} sdk file URL of the SDK entry Live projects use (on macOS, port/sdk.js)
  * @property {string} operator file URL of its operator entry
  * @property {string} simSdk file URL of the SDK on the simulator (sim/sdk.js), for simulated projects
  * @property {string} simOperator file URL of its operator entry (sim/operator.js)
+ * @property {object} [windows] Windows-only WSL deployment and private endpoint-file location; never its secret.
  */
 
 /**
@@ -58,9 +65,10 @@ export function resolveConfig(config, profile) {
   // macOS runs no Store call itself: a bundle's SDK calls run in the Store container (port/)
   const ported = process.platform === "darwin" && bundle !== null;
   const prefix = config.containerPrefix || "layerfs-";
+  const windows = process.platform === "win32" ? windowsConfig(config, home, prefix) : null;
   const spec = {
     image: config.image || null,
-    daemon: config.daemon || (bundle && join(bundle, "layerfs-daemon")),
+    daemon: config.daemon || (bundle && (windows ? posix.join(bundle, "layerfs-daemon") : join(bundle, "layerfs-daemon"))),
     bundle,
     prefix,
     box: ported ? storeName(prefix) : null,
@@ -69,19 +77,21 @@ export function resolveConfig(config, profile) {
     home,
     stateDir: config.stateDir || join(profile ? profile.dir : join(homedir(), ".dsh"), "dsh-layerfs"),
     traceDir: config.traceDir || join(temp, "traces"),
+    traceInWorkspace: process.platform === "win32" && !config.traceDir,
     pollMs: config.pollMs ?? 400,
-    sdk: ported ? new URL("./port/sdk.js", import.meta.url).href : import.meta.resolve("@layerfs/sdk"),
-    operator: ported ? new URL("./port/operator.js", import.meta.url).href : import.meta.resolve("@layerfs/sdk/operator"),
+    sdk: windows ? new URL("./windows/sdk.js", import.meta.url).href : ported ? new URL("./port/sdk.js", import.meta.url).href : import.meta.resolve("@layerfs/sdk"),
+    operator: windows ? new URL("./windows/operator.js", import.meta.url).href : ported ? new URL("./port/operator.js", import.meta.url).href : import.meta.resolve("@layerfs/sdk/operator"),
     simSdk: new URL("./sim/sdk.js", import.meta.url).href,
     simOperator: new URL("./sim/operator.js", import.meta.url).href,
   };
+  if (windows) spec.windows = windows;
   for (const dir of [spec.stateDir, spec.traceDir]) mkdirSync(dir, { recursive: true });
   mkdirSync(spec.home, { recursive: true, mode: 0o700 });
   return spec;
 }
 
 /** Deployment settings Init and bash calls need that are not configured (macOS: a bundle too). */
-export const missingDeployment = (spec) => ["image", "daemon", ...(process.platform === "darwin" ? ["bundle"] : [])].filter((name) => !spec[name]);
+export const missingDeployment = (spec) => ["image", "daemon", ...(spec.windows || process.platform === "darwin" ? ["bundle"] : [])].filter((name) => !spec[name]);
 
 /** The SDK entry as a path, for Node imports in the Host. */
 export const sdkPath = (spec) => fileURLToPath(spec.sdk);

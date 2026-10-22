@@ -28,6 +28,7 @@ const VARIABLES = {
   DSH_LAYERFS_DAEMON_HOST: "Host the SDK dials for a Sandbox daemon's published port",
   DSH_LAYERFS_STORE_CONTAINER: "macOS: the Store container (Linux) the SDK's calls run in",
   DSH_LAYERFS_BUNDLE: "macOS: the LayerFS build whose SDK DSH_LAYERFS_SDK runs",
+  DSH_LAYERFS_WSL_ENDPOINT: "Windows: private endpoint file of the WSL LayerFS worker",
   DSH_LAYERFS_TRACE: "File the SDK appends one line per call to",
   DSH_LAYERFS_TRACE_STEP: "Label of this bash call on the SDK's trace lines",
   DSH_LAYERFS_TRACE_START: "1: the SDK also writes a line when each call starts",

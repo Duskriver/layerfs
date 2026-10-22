@@ -51,6 +51,9 @@ export class BindingStore {
 
   /** Reads the file again when another process replaced it since the last read. */
   reload() {
+    // Windows cannot replace the destination while another process has it open.
+    // Admission precedes the read; a failed rename itself is never retried.
+    if (process.platform === "win32" && this.depth === 0) return this.locked(() => this.reload());
     let stat;
     try { stat = statSync(this.file); } catch { return; }
     const stamp = `${stat.ino}:${stat.size}:${stat.mtimeMs}`;
@@ -69,6 +72,17 @@ export class BindingStore {
    */
   update(change) {
     if (this.depth > 0) return change(this._data);
+    return this.locked(() => {
+      this.stamp = null;
+      this.reload();
+      const result = change(this._data);
+      this.save();
+      return result;
+    });
+  }
+
+  /** One short synchronous read or change, using the existing cross-process admission lock. */
+  locked(work) {
     const deadline = Date.now() + 10_000;
     for (;;) {
       try { mkdirSync(this.lockDir); break; } catch (error) {
@@ -79,13 +93,7 @@ export class BindingStore {
       }
     }
     this.depth++;
-    try {
-      this.stamp = null;
-      this.reload();
-      const result = change(this._data);
-      this.save();
-      return result;
-    } finally { this.depth--; try { rmdirSync(this.lockDir); } catch {} }
+    try { return work(); } finally { this.depth--; try { rmdirSync(this.lockDir); } catch {} }
   }
 
   save() {
@@ -185,7 +193,10 @@ export class BindingStore {
     this.update((data) => {
       delete data.projects[name];
       for (const w of Object.values(data.workspaces)) if (w.lastUsed === name) w.lastUsed = null;
-      for (const choice of Object.values(data.sessions)) if (choice.project === name) choice.project = null;
+      for (const choice of Object.values(data.sessions)) if (choice.project === name) {
+        choice.project = null;
+        choice.locked = false;
+      }
     });
   }
 
@@ -205,10 +216,11 @@ export class BindingStore {
   }
 
   /** Records an agent's root session and display name. */
-  setAgent(sessionId, root, name) {
+  setAgent(sessionId, root, name, traceFile) {
     const known = this.data.agents[sessionId];
-    if (known && known.root === root && known.name === name) return;
-    this.update((data) => { data.agents[sessionId] = { root, name }; });
+    const file = traceFile ?? known?.traceFile;
+    if (known && known.root === root && known.name === name && known.traceFile === file) return;
+    this.update((data) => { data.agents[sessionId] = { root, name, ...(file ? { traceFile: file } : {}) }; });
   }
 
   /** Agents of one root session, as { id: name }. */

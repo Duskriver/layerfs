@@ -16,6 +16,7 @@ import { onUnreachable } from "./port/binding.js";
 import { Collector } from "./collector.js";
 import z from "@deepseek-ai/schemastery";
 import { resolveConfig } from "./config.js";
+import { ensureWindows, closeWindows } from "./windows/host.js";
 import { contributor, projectContext } from "./env.js";
 import { registerRoutes } from "./route.js";
 import { TreeReader } from "./trees.js";
@@ -27,11 +28,15 @@ export const Config = z.object({
   image: z.string().description("LayerFS runtime image digest (sha256:…) that Sandboxes run"),
   daemon: z.string().description("Host path of the built Linux layerfs-daemon"),
   bundle: z.string().description("Folder of a sealed Linux LayerFS build; on macOS, Live SDK calls run it in the Store container"),
+  wslDistribution: z.string().description("Windows: WSL distribution running the Linux SDK and Docker Engine (default Ubuntu)"),
+  wslUser: z.string().description("Windows: WSL user owning the Store volumes (default root)"),
+  wslHome: z.string().description("Windows: persistent Linux discovery home, separate from the Windows home"),
+  wslNode: z.string().description("Windows: absolute Linux Node executable (default /usr/local/bin/node)"),
   containerPrefix: z.string().description("Prefix of this home's container names (default layerfs-): Sandboxes <prefix><project>-<n>, the Store container <prefix>store"),
   docker: z.string().description("Local Docker Engine Unix socket"),
   home: z.string().description("LayerFS home for discovery records (default: <temp>/dsh-layerfs/home)"),
   stateDir: z.string().description("Project bindings and agent names (default: <profile>/dsh-layerfs)"),
-  traceDir: z.string().description("Per-agent SDK trace files (default: <temp>/dsh-layerfs/traces)"),
+  traceDir: z.string().description("Per-agent SDK traces (Windows default: <workspace>/.dsh-layerfs-traces; other platforms: <temp>/dsh-layerfs/traces)"),
   pollMs: z.natural().min(50).max(10_000).default(400).description("How often trace files are read, in milliseconds"),
 });
 
@@ -41,6 +46,10 @@ export const Config = z.object({
  */
 export function apply(ctx, config) {
   const spec = resolveConfig(config, ctx.get("profileContext"));
+  if (spec.windows && spec.bundle && spec.image && spec.daemon) {
+    ensureWindows(spec).catch((error) => ctx.logger?.warn?.(`layerfs: WSL worker did not start: ${error.message}`));
+    ctx.effect(() => () => closeWindows(spec).catch((error) => ctx.logger?.warn?.(`layerfs: ${error.message}`)), "layerfs-host: WSL worker");
+  }
   if (spec.box) {
     // the Host's own clients use the ported SDK too (port/sdk.js)
     Object.assign(process.env, { DSH_LAYERFS_STORE_CONTAINER: spec.box, DSH_LAYERFS_BUNDLE: spec.bundle });
@@ -52,7 +61,7 @@ export function apply(ctx, config) {
   if (heal) ctx.effect(() => onUnreachable(heal), "layerfs-host: Store container self-heal");
   // older Sandboxes left running (they may hold work) are shown in GET /layerfs/status
   spec.migration = { kept: [] };
-  migrate(spec, undefined, (text) => ctx.logger?.warn?.(text))
+  (spec.windows ? Promise.resolve({ kept: [] }) : migrate(spec, undefined, (text) => ctx.logger?.warn?.(text)))
     .then((result) => { spec.migration = result; })
     .catch((error) => ctx.logger?.warn?.(`layerfs: moving to the #373 layout: ${error.message}`));
   const bindings = new BindingStore(spec.stateDir);

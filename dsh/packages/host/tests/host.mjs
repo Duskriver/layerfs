@@ -3,7 +3,7 @@
 // dsh's appendPluginRecord is replaced by a stand-in that keeps each record
 // on the fake Session; Sessions, the web server and Connection are fakes.
 import assert from "node:assert/strict";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { register } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -74,7 +74,7 @@ try {
   }
   assert.equal(vars.DSH_LAYERFS_IMAGE, "sha256:img");
   assert.equal(vars.DSH_LAYERFS_CONTAINER_PREFIX, "layerfs-", "Sandboxes are layerfs-<project>-<n>");
-  assert.match(vars.DSH_LAYERFS_OPERATOR, process.platform === "darwin" ? /^file:.*\/port\/operator\.js$/ : /^file:.*\/operator\/index\.js$/);
+  assert.match(vars.DSH_LAYERFS_OPERATOR, process.platform === "win32" ? /^file:.*\/windows\/operator\.js$/ : process.platform === "darwin" ? /^file:.*\/port\/operator\.js$/ : /^file:.*\/operator\/index\.js$/);
   assert.equal(vars.DSH_LAYERFS_TRACE_STEP, "r1");
   assert.equal(vars.DSH_LAYERFS_TRACE, join(h.spec.traceDir, "child-1.jsonl"));
   assert.ok(Object.keys(vars).every((key) => key in h.env.variables), "every value is a declared variable");
@@ -126,6 +126,25 @@ try {
   // finished lines outlive the temporary trace files through the journal
   rmSync(h.spec.traceDir, { recursive: true, force: true });
   assert.deepEqual(host().collector.snapshot("session-root").lines.map((l) => l.method), ["workspace.mount", "workspace.exec"]);
+
+  // Windows traces live under the writable workspace. Keep their location
+  // across renaming and a Host restart, including a line not yet journaled.
+  {
+    const windows = host(), cwd = join(dir, "windows-workspace");
+    windows.spec.traceInWorkspace = true;
+    const agent = { id: "windows-agent", root: "windows-root", name: "maid", cwd };
+    const file = windows.collector.track(agent, { name: "website" });
+    assert.equal(file, join(cwd, ".dsh-layerfs-traces", "windows-agent.jsonl"));
+    appendFileSync(file, trace("windows-call", "fs.write", "end", { kind: "Committed", commit: "windows-commit" }));
+    windows.bindings.setAgent(agent.id, agent.root, "renamed maid");
+    const restarted = host();
+    restarted.spec.traceInWorkspace = true;
+    const lines = restarted.collector.snapshot(agent.root).lines;
+    assert.equal(lines.length, 1);
+    assert.equal(lines[0].agent, "renamed maid");
+    assert.equal(lines[0].commit, "windows-commit");
+    assert.equal(restarted.bindings.agent(agent.id).traceFile, file);
+  }
 
   // Files reads (reads.js) on a fake client: a folder page, a file window, a binary
   // file's size (the SDK refuses its text), changed paths and one file's diff
@@ -333,6 +352,8 @@ try {
   const v2 = new BindingStore(two);
   assert.deepEqual([v2.data.version, v2.defaults(), Object.values(v2.data.projects).some((p) => "folder" in p)], [3, { "/one": "a" }, false]);
 
+  // The shared removal contract uses a supplied Docker runner; Windows integration has its own real proof.
+  delete h.spec.windows;
   // removal: confirmed by name, refused while a running container uses the volume; stopped ones go with it, then volume, home entry and binding
   assert.equal((await call("POST", "/layerfs/project/website/remove", { confirm: "web" })).status, 400);
   const ran = [], dockerWith = (users) => async (file, args) => { ran.push(args.slice(2).join(" ")); return { stdout: args[2] === "ps" ? users : "" }; };
@@ -347,12 +368,12 @@ try {
   assert.deepEqual(forgot, ["website", "website"]);
   mkdirSync(join(dir, "website"), { recursive: true });
   // Linux: a Host that cannot write Docker's volumes directory, or does not own the LayerFS home, is refused before a volume is made
-  const uid = process.getuid?.() ?? 1000;
+  const uid = statSync(h.spec.home).uid;
   assert.equal(hostAccess(h.spec, { platform: "linux", uid }), null);
   assert.equal(hostAccess({ ...h.spec, volumes: join(dir, "no-volumes") }, { platform: "linux", uid }), null, "an engine without that directory is not checked");
   assert.equal(hostAccess({ ...h.spec, volumes: "/nowhere" }, { platform: "darwin", uid }), null, "macOS imports in the Store container");
   writeFileSync(join(dir, "volumes-file"), "");
-  assert.match(hostAccess({ ...h.spec, volumes: join(dir, "volumes-file", "x") }, { platform: "linux", uid }), /cannot write Docker's volumes directory .* \(ENOTDIR\)/);
+  if (process.platform === "linux") assert.match(hostAccess({ ...h.spec, volumes: join(dir, "volumes-file", "x") }, { platform: "linux", uid }), /cannot write Docker's volumes directory .* \(ENOTDIR\)/);
   assert.match(hostAccess(h.spec, { platform: "linux", uid: uid + 1 }), /belongs to uid \d+, not this Host's uid/);
   if (process.platform === "linux") assert.throws(() => prepareInit({ ...h.spec, volumes: join(dir, "volumes-file", "x") }, h.bindings, { folder: dir }), { code: "host-access" });
   assert.equal(prepareInit({ ...h.spec, volumes: "/nowhere-file/x" }, h.bindings, { folder: dir, backend: "sim" }).project.backend, "sim", "a simulated project needs no Docker");
