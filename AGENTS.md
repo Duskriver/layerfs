@@ -248,6 +248,8 @@ remain binding; moving them out of this file does not weaken them.
   [the cleanup script](docs/general/cleanup.md) are optional local tools. Disk
   thresholds, check cadence and standing cleanup authorization depend on the
   machine; they belong in the user's own agent instructions, not in this file.
+- Independent E2E runs own their writable Stores, SDK homes, containers and
+  traces. Preserve a test's intentional multi-daemon shared Store.
 - Preserve unrelated work. Build the current core implementation, not legacy
   aliases, source includes or error-driven substitutes. Keep platform cfgs.
 - No new dependency if an existing crate supplies the capability. Never patch,

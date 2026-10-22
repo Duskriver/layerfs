@@ -258,11 +258,13 @@ ids and the run ledger decide what is removed. A still-running resource is not
 disposable merely because its original shell exited.
 
 Keep host and Docker guest headroom separate. How often to check free space, the
-low-space trigger and the recovery target depend on the machine; set them in your
-own agent instructions, not in this repository. Thresholds are not product limits,
-test verdicts, or permission to delete protected state. Before a large new
-fixture, cache clone, or image build, account for its additional allocation. If confirmed disposable data cannot meet the recovery target, report
-the actual recovery, shortfall and remaining protected/uncertain allocation.
+low-space trigger and the recovery target, for the host and inside Docker, depend
+on the machine; set them in your own agent instructions, not in this repository.
+Thresholds are not product limits, test verdicts, or permission to delete
+protected state. Before a large new fixture, cache clone, or image build, account
+for its additional allocation. If confirmed disposable data cannot meet the
+recovery target you set, report the actual recovery, shortfall and remaining
+protected/uncertain allocation.
 
 After removal, record actual free-byte changes in both filesystems where
 applicable. APFS clone totals and Docker object totals are not additive physical
@@ -314,9 +316,9 @@ only in this retirement mode; every current container bind is checked separately
 Idle agents are left running, and their removed checkout paths require restoration
 or reattachment before reuse. Record active assignments
 and their dependency paths with `--protect-path`; a process check alone cannot
-identify future reuse. Inspect the saved exact plan before applying it. Explicit
-user cleanup authorization is sufficient release authority for confirmed idle
-resources; do not demand an additional handoff file or confirmation.
+identify future reuse. Inspect the saved exact plan before applying it, and apply
+it only with the user's authorization for that cleanup. Whether an authorization
+carries over to later passes belongs in the user's own agent instructions.
 
 For a cache pass, use `--discover-caches --authorization "..."` instead. It finds
 real Cargo targets below each linked checkout's target roots, including nested
