@@ -8,14 +8,17 @@
 //! Layers.
 use crate::job::{failed, refused, Outcome};
 use crate::registry::{lock, random, text, Project, INITS};
-use layerfs_api::{InitCounters, InitRequest, InitStep, ProjectApi};
-use layerfs_bridge::control::SdkValue;
+use layerfs_api::{
+    InitCounters, InitError, InitFailure, InitRequest, InitStep, ProjectApi, ProjectError,
+    SourceRefusal,
+};
+use layerfs_bridge::control::{SdkRefusal, SdkValue};
 use layerfs_bridge::sdk_values::hex;
 use layerfs_history::{BranchId, HistoryCatalogConfig, HistoryName, LayerStackId};
 use layerfs_persistence::{PersistenceConfig, SqlitePersistenceProfile};
 use layerfs_storage::StoragePolicy;
 use layerfs_telemetry::timer::Timing;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -90,7 +93,7 @@ pub(crate) fn init(args: &SdkValue) -> Outcome {
         ProjectApi::new().init_observed(request, timer, counters)
     });
     drop(running);
-    let sealed = sealed.map_err(failed)?;
+    let sealed = sealed.map_err(|failure| init_failure(*failure, &directory))?;
     let answer = SdkValue::map([
         ("kind", SdkValue::text("Initialized")),
         ("project", SdkValue::text(name)),
@@ -122,6 +125,42 @@ pub(crate) fn init(args: &SdkValue) -> Outcome {
     project.installed = Some(installed);
     crate::discovery::save_project(&directory, &project)?;
     Ok(answer)
+}
+
+/// Init's failure. A refused source entry is `InvalidInput` whose `detail`
+/// names the check and the entry ({ reason, path, mode? }). Nothing was
+/// published and Init already removed its own working state, so the project
+/// entry this call made is removed and the name can be initialized again.
+/// Every other failure keeps the entry and its Store as they are.
+fn init_failure(failure: InitFailure, directory: &Path) -> SdkRefusal {
+    let InitError::Project(ProjectError::InvalidInput { reason, path }) = &failure.error else {
+        return failed(failure);
+    };
+    let mut message = format!("project.init refused {}: {reason}", path.display());
+    let path = SdkValue::text(path.display().to_string());
+    let detail = match reason {
+        SourceRefusal::Mode(mode) => SdkValue::map([
+            ("reason", SdkValue::text("Mode")),
+            ("path", path),
+            ("mode", SdkValue::text(format!("{mode:04o}"))),
+        ]),
+        other => SdkValue::map([
+            ("reason", SdkValue::text(format!("{other:?}"))),
+            ("path", path),
+        ]),
+    };
+    // The entry is removed while this call still holds its discovery lock.
+    if let Err(error) = std::fs::remove_dir_all(directory) {
+        message = format!(
+            "{message}; its entry {} was not removed: {error}",
+            directory.display()
+        );
+    }
+    SdkRefusal {
+        code: "InvalidInput".to_owned(),
+        message,
+        detail,
+    }
 }
 
 /// The Store policy Init records: the default, or the caller's `policy`

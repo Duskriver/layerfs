@@ -25,6 +25,13 @@ selects the Store policy `project.init` records instead of the default:
 `{ smallFileThreshold, wholeFileDepth, chunkDepth, metadataDepth }`, each
 defaulting to the default policy's value (131072 bytes, depths 16, 8 and 8). An
 invalid policy is refused as `InvalidInput` before the project entry is made.
+A source entry Init cannot store is refused as `InvalidInput` whose `detail`
+names it: `{ reason, path }`, plus `mode` (octal text) for `Mode`. The reasons
+are `NotDirectory` (the source is a symlink or not a directory), `Mode` (a
+set-user-ID or set-group-ID bit on any entry, or the sticky bit on a file),
+`Mtime` (a modification time out of range) and `Changed` (the entry changed
+while Init read it). Nothing is published and the project entry is removed, so
+the name can be initialized again once the source is fixed.
 The recorded policy governs the Store for its life. Project names use 1–63 lowercase ASCII
 letters, digits, `_`, `-`, `.` and start/end alphanumeric. Init is explicit;
 subsequent clients discover the existing project without reacquiring its source

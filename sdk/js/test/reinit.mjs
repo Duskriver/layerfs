@@ -1,12 +1,13 @@
 // A project is its home entry: Init refuses a name whose entry exists, and
 // once that entry is removed the same process initializes the name again.
+// A refused source is named (#410) and leaves no entry behind.
 // Each Init installs its Store at its client's storePath (#373), so each
 // uses its own, as each Import uses a new volume. Real native binding,
 // Disposable Store, no Docker or daemon; Linux, with LAYERFS_STORE_PATH on a
 // local volume (the E2E launcher's):
 //   node sdk/js/test/reinit.mjs
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -26,6 +27,15 @@ try {
     return new LayerFS("website", { storePath: join(folder, "global", "store.sqlite") });
   };
   const layerfs = client();
+
+  // A set-group-ID source directory has a mode LayerFS cannot store.
+  chmodSync(source, 0o2755);
+  await assert.rejects(layerfs.project.init(source), {
+    code: "InvalidInput",
+    detail: { reason: "Mode", path: source, mode: "2755" },
+  });
+  assert.ok(!existsSync(join(work, "home", "website")), "a refused Init leaves no entry");
+  chmodSync(source, 0o755);
 
   const first = await layerfs.project.init(source);
   assert.equal(first.kind, "Initialized");
